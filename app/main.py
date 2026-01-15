@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from fastapi.security import APIKeyHeader
 from fastapi import HTTPException, Depends, Security
+from app.db import supabase
 
 load_dotenv()
 
