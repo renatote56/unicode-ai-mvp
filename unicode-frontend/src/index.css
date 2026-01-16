@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --color-unicode-green: #00FF88;
+  --color-unicode-black: #0a0a0a;
+  --color-unicode-gray: #1A1A1A;
+  
+  --font-inter: 'Inter', sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-unicode-black text-white font-inter;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+}

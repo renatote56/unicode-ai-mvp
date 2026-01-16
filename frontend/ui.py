@@ -1,11 +1,19 @@
-import streamlit as st
-import requests
-import time
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Cargar .env desde la raíz del proyecto (un nivel arriba de frontend/)
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
 API_KEY = os.getenv("UNICODE_AI_API_KEY")
+
+print(f"DEBUG: .env path: {env_path}")
+print(f"DEBUG: API_KEY loaded: {bool(API_KEY)}") # No imprimir la clave real por seguridad
+
+if not API_KEY:
+    st.error("⚠️ ERROR DE CONFIGURACIÓN: No se encontró la API KEY en el archivo .env")
+    st.stop()
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
