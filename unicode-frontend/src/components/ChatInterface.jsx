@@ -1,199 +1,419 @@
 import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Send, Menu, Plus, MessageSquare, User, Bot, Sparkles } from "lucide-react";
+import { motion } from "framer-motion";
+import { Menu, User, Bot } from "lucide-react";
 import axios from "axios";
+import Sidebar from "./Sidebar";
+import ModelSelector from "./ModelSelector";
+import StarterCards from "./StarterCards";
+import FloatingInputBar from "./FloatingInputBar";
+import SettingsModal from "./SettingsModal";
+import CodeBlock from "./CodeBlock";
+import {
+    loadSessions,
+    saveSession,
+    deleteSession,
+    clearAllSessions,
+    generateSessionId,
+    getSessionTitle,
+} from "../utils/sessionManager";
 
 export default function ChatInterface() {
+    // Chat State
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-    const messagesEndRef = useRef(null);
+    const [isGenerating, setIsGenerating] = useState(false);
 
+    // Session State
+    const [currentSessionId, setCurrentSessionId] = useState(() => generateSessionId());
+    const [chatSessions, setChatSessions] = useState(() => loadSessions());
+    const [isSessionSaved, setIsSessionSaved] = useState(false);
+
+    // UI State
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+    // Streaming State
+    const [streamingText, setStreamingText] = useState("");
+    const [isStreaming, setIsStreaming] = useState(false);
+
+    // Refs
+    const messagesEndRef = useRef(null);
+    const streamIntervalRef = useRef(null);
+
+    // Scroll to bottom when messages change
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [messages, streamingText]);
 
+    // Cleanup interval on unmount
+    useEffect(() => {
+        return () => {
+            if (streamIntervalRef.current) {
+                clearInterval(streamIntervalRef.current);
+            }
+        };
+    }, []);
+
+    // Typewriter Streaming Effect
+    const typewriterEffect = (text, callback) => {
+        let index = 0;
+        setStreamingText("");
+        setIsStreaming(true);
+        setIsGenerating(true);
+
+        if (streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+        }
+
+        streamIntervalRef.current = setInterval(() => {
+            if (index < text.length) {
+                setStreamingText((prev) => prev + text[index]);
+                index++;
+            } else {
+                clearInterval(streamIntervalRef.current);
+                streamIntervalRef.current = null;
+                setIsStreaming(false);
+                setIsGenerating(false);
+                callback();
+            }
+        }, 20);
+    };
+
+    // Stop Generation
+    const handleStopGeneration = () => {
+        if (streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+        }
+
+        // Save partial message
+        if (streamingText) {
+            const assistantMsg = { role: "assistant", content: streamingText };
+            setMessages((prev) => [...prev, assistantMsg]);
+        }
+
+        setStreamingText("");
+        setIsStreaming(false);
+        setIsGenerating(false);
+        setIsLoading(false);
+    };
+
+    // Save current session to localStorage
+    const saveCurrentSession = (updatedMessages) => {
+        if (updatedMessages.length === 0) return;
+
+        const session = {
+            id: currentSessionId,
+            title: getSessionTitle(updatedMessages),
+            messages: updatedMessages,
+        };
+
+        const updatedSessions = saveSession(session);
+        setChatSessions(updatedSessions);
+        setIsSessionSaved(true);
+    };
+
+    // Handle sending message
     const handleSend = async (e) => {
         e.preventDefault();
-        if (!input.trim()) return;
+        if (!input.trim() || isLoading) return;
 
         const userMsg = { role: "user", content: input };
-        setMessages((prev) => [...prev, userMsg]);
+        const updatedMessages = [...messages, userMsg];
+        setMessages(updatedMessages);
         setInput("");
         setIsLoading(true);
 
-        try {
-            const response = await axios.post("http://127.0.0.1:8000/api/v1/chat", {
-                message: userMsg.content,
-            }, {
-                headers: {
-                    "X-API-Key": "unicode_go_2026_id" // Using dummy key or env var if reachable. Ideally from env.
-                }
-            });
+        // Save session after FIRST user message
+        if (!isSessionSaved) {
+            saveCurrentSession(updatedMessages);
+        }
 
-            const aiMsg = {
-                role: "assistant",
-                content: response.data.response || "No response received."
-            };
-            setMessages((prev) => [...prev, aiMsg]);
+        try {
+            const response = await axios.post(
+                "http://127.0.0.1:8000/api/v1/chat",
+                { message: userMsg.content },
+                {
+                    headers: {
+                        "X-API-Key": "unicode_go_2026_id",
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+
+            const aiResponse = response.data.response || "No response received.";
+
+            // Simulate typewriter streaming effect
+            typewriterEffect(aiResponse, () => {
+                const assistantMsg = { role: "assistant", content: aiResponse };
+                const finalMessages = [...updatedMessages, assistantMsg];
+                setMessages(finalMessages);
+                setStreamingText("");
+                setIsLoading(false);
+
+                // Update session with AI response
+                saveCurrentSession(finalMessages);
+            });
         } catch (error) {
-            console.error("Error connecting to backend:", error);
+            console.error("Error sending message:", error);
+            console.error("Error response:", error.response?.data);
+            console.error("Error status:", error.response?.status);
+
+            let errorMessage = "❌ Error conectando con el servidor. Asegúrate de que el backend esté corriendo.";
+
+            if (error.response) {
+                // Server responded with error
+                errorMessage = `❌ Error ${error.response.status}: ${error.response.data?.detail || error.response.statusText}`;
+            } else if (error.request) {
+                // Request made but no response
+                errorMessage = "❌ No se recibió respuesta del servidor. Verifica que el backend esté corriendo.";
+            }
+
             const errorMsg = {
                 role: "assistant",
-                content: "⚠️ Error conectando con el servidor. Asegúrate de que el backend esté corriendo."
+                content: errorMessage,
             };
-            setMessages((prev) => [...prev, errorMsg]);
-        } finally {
+            const finalMessages = [...updatedMessages, errorMsg];
+            setMessages(finalMessages);
+            setIsLoading(false);
+            saveCurrentSession(finalMessages);
+        }
+    };
+
+    // New Chat Handler
+    const handleNewChat = () => {
+        // Save current session before clearing
+        if (messages.length > 0 && !isSessionSaved) {
+            saveCurrentSession(messages);
+        }
+
+        // Reset to new session
+        setCurrentSessionId(generateSessionId());
+        setMessages([]);
+        setInput("");
+        setStreamingText("");
+        setIsSessionSaved(false);
+        setIsStreaming(false);
+        setIsGenerating(false);
+        setIsLoading(false);
+    };
+
+    // Select Session Handler
+    const handleSelectSession = (sessionId) => {
+        const session = chatSessions.find((s) => s.id === sessionId);
+        if (session) {
+            // Save current session before switching
+            if (messages.length > 0 && currentSessionId !== sessionId) {
+                saveCurrentSession(messages);
+            }
+
+            setCurrentSessionId(session.id);
+            setMessages(session.messages);
+            setIsSessionSaved(true);
+            setInput("");
+            setStreamingText("");
+            setIsStreaming(false);
+            setIsGenerating(false);
             setIsLoading(false);
         }
     };
 
+    // Delete Session Handler
+    const handleDeleteSession = (sessionId) => {
+        const updatedSessions = deleteSession(sessionId);
+        setChatSessions(updatedSessions);
+
+        // If deleted session is current, start new chat
+        if (sessionId === currentSessionId) {
+            handleNewChat();
+        }
+    };
+
+    // Clear All History Handler
+    const handleClearHistory = () => {
+        clearAllSessions();
+        setChatSessions([]);
+        handleNewChat();
+    };
+
+    // Handle Starter Card Click
+    const handleSelectPrompt = (prompt) => {
+        setInput(prompt);
+    };
+
     return (
-        <div className="flex h-screen bg-unicode-black text-white font-sans overflow-hidden">
+        <div className="h-screen bg-unicode-black-deeper flex overflow-hidden">
             {/* Sidebar */}
-            <AnimatePresence mode="wait">
-                {isSidebarOpen && (
-                    <motion.div
-                        initial={{ width: 0, opacity: 0 }}
-                        animate={{ width: 260, opacity: 1 }}
-                        exit={{ width: 0, opacity: 0 }}
-                        className="h-full bg-unicode-gray border-r border-white/5 flex flex-col p-4 z-20"
-                    >
-                        <div className="flex items-center justify-between mb-8">
-                            <span className="font-bold text-lg tracking-wider text-unicode-green flex items-center gap-2">
-                                <Sparkles className="w-5 h-5" /> UNICODE AI
-                            </span>
-                        </div>
+            <Sidebar
+                isOpen={isSidebarOpen}
+                onClose={() => setIsSidebarOpen(false)}
+                onNewChat={handleNewChat}
+                chatSessions={chatSessions}
+                onSelectSession={handleSelectSession}
+                onDeleteSession={handleDeleteSession}
+                currentSessionId={currentSessionId}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+            />
 
-                        <button
-                            onClick={() => setMessages([])}
-                            className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-sm font-medium mb-6 border border-white/5"
-                        >
-                            <Plus className="w-4 h-4" /> Nuevo Chat
-                        </button>
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col relative">
+                {/* Model Selector */}
+                <ModelSelector sidebarOpen={isSidebarOpen} />
 
-                        <div className="flex-1 overflow-y-auto">
-                            <p className="text-xs font-semibold text-gray-500 mb-3 px-2">Recientes</p>
-                            <div className="space-y-1">
-                                <button className="w-full flex items-center gap-3 px-3 py-2 text-gray-400 hover:bg-white/5 hover:text-white rounded-lg text-sm text-left transition-colors truncate">
-                                    <MessageSquare className="w-4 h-4 shrink-0" />
-                                    <span className="truncate">Bienvenida al sistema</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="mt-auto pt-4 border-t border-white/5">
-                            <div className="flex items-center gap-3 px-2">
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-unicode-green to-blue-500 flex items-center justify-center font-bold text-black text-xs">
-                                    U
-                                </div>
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium">Usuario</span>
-                                    <span className="text-xs text-gray-500">Free Plan</span>
-                                </div>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col relative min-w-0">
-                {/* Header */}
-                <header className="h-14 flex items-center px-4 border-b border-white/5 bg-unicode-black/50 backdrop-blur-md absolute top-0 w-full z-10">
+                {/* Hamburger Menu (only shown when sidebar is closed) */}
+                {!isSidebarOpen && (
                     <button
-                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        className="p-2 hover:bg-white/5 rounded-lg text-gray-400 hover:text-white transition-colors"
+                        onClick={() => setIsSidebarOpen(true)}
+                        className="fixed top-6 left-6 z-30 p-3 glass-ultra border border-unicode-green/20 rounded-full hover:bg-unicode-green/10 transition-all text-unicode-green"
                     >
                         <Menu className="w-5 h-5" />
                     </button>
-                    <span className="ml-4 font-medium text-gray-300">Modelo: Gemini 1.5 Flash</span>
-                </header>
+                )}
 
-                {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto pt-20 pb-40 px-4 md:px-0">
-                    <div className="max-w-3xl mx-auto space-y-6">
-                        {messages.length === 0 ? (
-                            <div className="text-center mt-20 opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
-                                <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                                    <Sparkles className="w-8 h-8 text-unicode-green" />
-                                </div>
-                                <h2 className="text-2xl font-bold mb-2">¿Cómo puedo ayudarte hoy?</h2>
-                                <p className="text-gray-400">Pregúntame sobre la Universidad, áreas de Unicode o proyectos.</p>
-                            </div>
-                        ) : (
-                            messages.map((msg, idx) => (
-                                <motion.div
-                                    key={idx}
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className={`flex gap-4 ${msg.role === 'assistant' ? '' : 'flex-row-reverse'}`}
-                                >
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'assistant'
-                                        ? 'bg-unicode-green text-black'
-                                        : 'bg-white/10 text-white'
-                                        }`}>
-                                        {msg.role === 'assistant' ? <Bot className="w-5 h-5" /> : <User className="w-5 h-5" />}
-                                    </div>
-                                    <div className={`group relative max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-lg ${msg.role === 'assistant'
-                                        ? 'bg-unicode-gray text-gray-100 border border-white/5'
-                                        : 'bg-white/10 text-white'
-                                        }`}>
-                                        {msg.content}
-                                    </div>
-                                </motion.div>
-                            ))
-                        )}
-                        {isLoading && (
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className="flex gap-4"
-                            >
-                                <div className="w-8 h-8 rounded-full bg-unicode-green text-black flex items-center justify-center shrink-0">
-                                    <Bot className="w-5 h-5" />
-                                </div>
-                                <div className="bg-unicode-gray rounded-2xl px-5 py-3 border border-white/5 flex gap-1 items-center">
-                                    <span className="w-2 h-2 bg-unicode-green rounded-full animate-bounce" style={{ animationDelay: "0s" }} />
-                                    <span className="w-2 h-2 bg-unicode-green rounded-full animate-bounce" style={{ animationDelay: "0.2s" }} />
-                                    <span className="w-2 h-2 bg-unicode-green rounded-full animate-bounce" style={{ animationDelay: "0.4s" }} />
-                                </div>
-                            </motion.div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-                </div>
-
-                {/* Input Area */}
-                <div className="absolute bottom-0 w-full p-4 bg-gradient-to-t from-unicode-black via-unicode-black to-transparent">
-                    <div className="max-w-3xl mx-auto">
-                        <form onSubmit={handleSend} className="relative group">
-                            <input
-                                type="text"
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                placeholder="Escribe un mensaje a Unicode AI..."
-                                className="w-full bg-unicode-gray/80 backdrop-blur-xl border border-white/10 text-white rounded-2xl pl-6 pr-14 py-4 focus:outline-none focus:border-unicode-green/50 focus:ring-1 focus:ring-unicode-green/50 transition-all shadow-lg placeholder:text-gray-500"
+                {/* Conditional Rendering: Empty State vs Chat State */}
+                {messages.length === 0 ? (
+                    // EMPTY STATE: Centered Layout
+                    <div className="flex-1 flex flex-col items-center justify-center h-full w-full px-4">
+                        <div className="w-full max-w-3xl flex flex-col items-center gap-8">
+                            <StarterCards onSelectPrompt={handleSelectPrompt} />
+                            <FloatingInputBar
+                                input={input}
+                                setInput={setInput}
+                                onSend={handleSend}
+                                isLoading={isLoading}
+                                isGenerating={isGenerating}
+                                onStopGeneration={handleStopGeneration}
+                                variant="static"
+                                sidebarOpen={isSidebarOpen}
                             />
-                            <button
-                                type="submit"
-                                disabled={!input.trim() || isLoading}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-white/10 hover:bg-unicode-green hover:text-black rounded-xl text-gray-400 transition-all disabled:opacity-50 disabled:hover:bg-white/10 disabled:hover:text-gray-400"
-                            >
-                                <Send className="w-5 h-5" />
-                            </button>
-                        </form>
-                        <p className="text-center text-xs text-gray-600 mt-3">
-                            Unicode AI puede cometer errores. Verifica la información importante.
-                        </p>
+                        </div>
+                    </div>
+                ) : (
+                    // CHAT STATE: Scrollable + Fixed Bottom
+                    <>
+                        <div className="flex-1 overflow-y-auto px-4 pt-24 pb-32">
+                            <div className="w-full max-w-3xl mx-auto space-y-6">
+                                {messages.map((msg, index) => (
+                                    <MessageBubble key={index} message={msg} />
+                                ))}
+
+                                {/* Streaming Message */}
+                                {isStreaming && streamingText && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="flex items-start gap-4"
+                                    >
+                                        <div className="w-10 h-10 rounded-full bg-unicode-green flex items-center justify-center shrink-0">
+                                            <Bot className="w-5 h-5 text-unicode-black" />
+                                        </div>
+                                        <div className="flex-1 pt-2">
+                                            <div className="text-white whitespace-pre-wrap">
+                                                {streamingText}
+                                                <span className="typewriter-cursor"></span>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                {/* Loading Indicator */}
+                                {isLoading && !isStreaming && (
+                                    <motion.div
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        className="flex items-center gap-4"
+                                    >
+                                        <div className="w-10 h-10 rounded-full bg-unicode-green flex items-center justify-center">
+                                            <Bot className="w-5 h-5 text-unicode-black" />
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <div
+                                                className="w-2 h-2 bg-unicode-green rounded-full animate-bounce"
+                                                style={{ animationDelay: "0s" }}
+                                            />
+                                            <div
+                                                className="w-2 h-2 bg-unicode-green rounded-full animate-bounce"
+                                                style={{ animationDelay: "0.2s" }}
+                                            />
+                                            <div
+                                                className="w-2 h-2 bg-unicode-green rounded-full animate-bounce"
+                                                style={{ animationDelay: "0.4s" }}
+                                            />
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                <div ref={messagesEndRef} />
+                            </div>
+                        </div>
+
+                        {/* Floating Input Bar (Fixed) */}
+                        <FloatingInputBar
+                            input={input}
+                            setInput={setInput}
+                            onSend={handleSend}
+                            isLoading={isLoading}
+                            isGenerating={isGenerating}
+                            onStopGeneration={handleStopGeneration}
+                            variant="fixed"
+                            sidebarOpen={isSidebarOpen}
+                        />
+                    </>
+                )}
+            </div>
+
+            {/* Settings Modal */}
+            <SettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
+                onClearHistory={handleClearHistory}
+            />
+        </div>
+    );
+}
+
+// Message Bubble Component
+function MessageBubble({ message }) {
+    const isUser = message.role === "user";
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`flex items-start gap-4 ${isUser ? "flex-row-reverse" : ""}`}
+        >
+            {/* Avatar */}
+            <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isUser
+                    ? "bg-unicode-gray-user"
+                    : "bg-unicode-green"
+                    }`}
+            >
+                {isUser ? (
+                    <User className="w-5 h-5 text-white" />
+                ) : (
+                    <Bot className="w-5 h-5 text-unicode-black" />
+                )}
+            </div>
+
+            {/* Message Content */}
+            <div className={`flex-1 ${isUser ? "flex justify-end" : ""}`}>
+                <div
+                    className={`inline-block max-w-full ${isUser
+                        ? "bg-unicode-gray-user text-white rounded-2xl px-5 py-3"
+                        : "text-white pt-2"
+                        }`}
+                >
+                    <div className="whitespace-pre-wrap break-words">
+                        {message.content}
                     </div>
                 </div>
             </div>
-        </div>
+        </motion.div>
     );
 }

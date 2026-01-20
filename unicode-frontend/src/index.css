@@ -1,18 +1,101 @@
 @import "tailwindcss";
 
+/* Google Fonts Import */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @theme {
   --color-unicode-green: #00FF88;
-  --color-unicode-black: #0a0a0a;
-  --color-unicode-gray: #1A1A1A;
-  
-  --font-inter: 'Inter', sans-serif;
+  --color-unicode-green-dark: #00CC6A;
+  --color-unicode-green-light: #33FFA3;
+  --color-unicode-black: #0A0A0A;
+  --color-unicode-black-deeper: #050505;
+  --color-unicode-gray: #111111;
+  --color-unicode-gray-card: #1A1A1A;
+  --color-unicode-gray-border: #2A2A2A;
+  --color-unicode-gray-user: #1E1E1E;
+
+  --font-inter: 'Inter', 'Geist Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 @layer base {
+  * {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply bg-unicode-black text-white font-inter;
+    @apply bg-unicode-black text-white font-sans antialiased;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
+  }
+
+  ::selection {
+    @apply bg-unicode-green text-unicode-black;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-unicode-black;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-unicode-gray-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-unicode-green/50;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  .glass {
+    background: rgba(26, 26, 26, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .glass-ultra {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3), 0 0 40px rgba(0, 255, 136, 0.1);
+  }
+
+  .glow-ring-green {
+    box-shadow: 0 0 0 3px rgba(0, 255, 136, 0.3);
+  }
+
+  .typewriter-cursor {
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0;
+    }
   }
 }
